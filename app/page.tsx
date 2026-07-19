@@ -63,6 +63,7 @@ export default function Home() {
   const [promptIndex, setPromptIndex] = useState(0);
   const [chosenStep, setChosenStep] = useState("");
   const [customStep, setCustomStep] = useState("");
+  const [customActions, setCustomActions] = useState<string[]>([]);
   const [showAllSteps, setShowAllSteps] = useState(false);
   const [missingNeed, setMissingNeed] = useState("");
   const [actionScores, setActionScores] = useState<Record<string, { total: number; contexts: Record<string, number> }>>({});
@@ -78,6 +79,7 @@ export default function Home() {
     setVoices(readStore("good-voices", []));
     setFaith(readStore("good-faith", []));
     setActionScores(readStore("good-action-scores", {}));
+    setCustomActions(readStore("good-custom-actions", []));
   }, []);
 
   useEffect(() => {
@@ -129,6 +131,24 @@ export default function Home() {
   };
 
   const stopRecording = () => { recorder.current?.stop(); setRecording(false); };
+  const saveCustomAction = (action: string) => {
+    const clean = action.trim();
+    if (!clean) return "";
+    const next = customActions.includes(clean) ? customActions : [clean, ...customActions];
+    setCustomActions(next);
+    try { localStorage.setItem("good-custom-actions", JSON.stringify(next)); } catch { /* הפעולה תישאר לביקור הזה */ }
+    return clean;
+  };
+  const removeCustomAction = (action: string) => {
+    const next = customActions.filter((item) => item !== action);
+    const nextScores = { ...actionScores };
+    delete nextScores[action];
+    setCustomActions(next);
+    setActionScores(nextScores);
+    if (chosenStep === action) setChosenStep("");
+    try { localStorage.setItem("good-custom-actions", JSON.stringify(next)); } catch { /* נשאיר את המצב בזיכרון */ }
+    try { localStorage.setItem("good-action-scores", JSON.stringify(nextScores)); } catch { /* נשאיר את המצב בזיכרון */ }
+  };
   const rememberHelp = (weight: number) => {
     if (!weight || !chosenStep) { setScreen("finish"); return; }
     const context = [...pains].sort().join("|") + "::" + missingNeed;
@@ -160,7 +180,7 @@ export default function Home() {
 
   if (screen === "missing") return <main className="shell soulScreen"><Header /><section className="flow"><p className="stepLabel">לפני שבוחרים צעד</p><div className="soulMark">♡</div><h2>מה כרגע הנשמה שלך צריכה?</h2><p className="sub">לא תמיד צריך לדעת מה לעשות. אפשר להתחיל ממה שחסר.</p><div className="soulNeeds">{soulNeeds.map((item) => <button className={missingNeed === item ? "selected" : ""} onClick={() => setMissingNeed(item)} key={item}><span>{missingNeed === item ? "●" : "○"}</span>{item}</button>)}</div><button className="primary" disabled={!missingNeed} onClick={() => setScreen("step")}>לראות מה אולי יעזור</button><button className="textButton" onClick={() => setScreen("step")}>אני לא יודעת כרגע</button></section></main>;
 
-  if (screen === "step") return <main className="shell stepPage"><Header /><section className="flow"><p className="stepLabel">צעד קטן אל החיים</p><h2>🌱 מה יעזור לי לחזור לחיים עכשיו?</h2><p className="sub">המטרה היא לא להספיק דברים. רק לבחור צעד אחד שמקרב אותך לחיים שאת רוצה.</p><section className="recommended"><div className="recommendedTitle"><span>✦</span><div><h3>אולי יתאים לך עכשיו</h3><p>לפי מה ששיתפת קודם</p></div></div><div className="actionCards">{recommendations.map((action) => <button className={chosenStep === action ? "selected" : ""} onClick={() => setChosenStep(action)} key={action}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button>)}</div></section>{!showAllSteps && <button className="showMore" onClick={() => setShowAllSteps(true)}>הצג עוד רעיונות <span>⌄</span></button>}{showAllSteps && <div className="stepGroups">{stepGroups.map((group) => <section className="stepGroup" key={group.title}><h3><span>{group.icon}</span>{group.title}</h3><div className="actionCards">{group.actions.map((action) => <button className={chosenStep === action ? "selected" : ""} onClick={() => setChosenStep(action)} key={action}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button>)}</div></section>)}<section className="stepGroup customGroup"><h3><span>⚙️</span>אפשרות אישית</h3><button className={chosenStep === "custom" ? "personalAction selected" : "personalAction"} onClick={() => setChosenStep("custom")}>➕ להוסיף פעולה משלי</button>{chosenStep === "custom" && <input autoFocus value={customStep} onChange={(e) => setCustomStep(e.target.value)} placeholder="מה יעזור לך עכשיו?" aria-label="פעולה אישית" />}</section></div>}<button className="primary stickyAction" disabled={!chosenStep || (chosenStep === "custom" && !customStep.trim())} onClick={() => { if (chosenStep === "custom") setChosenStep(customStep.trim()); setScreen("stepCommit"); }}>זה הצעד שלי</button><button className="textButton" onClick={() => setScreen("finish")}>אין לי כוח לצעד עכשיו, וזה בסדר</button></section></main>;
+  if (screen === "step") return <main className="shell stepPage"><Header /><section className="flow"><p className="stepLabel">צעד קטן אל החיים</p><h2>🌱 מה יעזור לי לחזור לחיים עכשיו?</h2><p className="sub">המטרה היא לא להספיק דברים. רק לבחור צעד אחד שמקרב אותך לחיים שאת רוצה.</p><section className="recommended"><div className="recommendedTitle"><span>✦</span><div><h3>אולי יתאים לך עכשיו</h3><p>לפי מה ששיתפת קודם</p></div></div><div className="actionCards">{recommendations.map((action) => <button className={chosenStep === action ? "selected" : ""} onClick={() => setChosenStep(action)} key={action}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button>)}</div></section>{!showAllSteps && <button className="showMore" onClick={() => setShowAllSteps(true)}>הצג עוד רעיונות <span>⌄</span></button>}{showAllSteps && <div className="stepGroups">{customActions.length > 0 && <section className="stepGroup savedActions"><h3><span>💛</span>דברים שעוזרים לי</h3><div className="savedActionList">{customActions.map((action) => <div className={chosenStep === action ? "savedAction selected" : "savedAction"} key={action}><button className="savedActionSelect" onClick={() => setChosenStep(action)}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button><button className="deleteAction" onClick={() => removeCustomAction(action)} aria-label={`למחוק את ${action}`}>×</button></div>)}</div></section>}{stepGroups.map((group) => <section className="stepGroup" key={group.title}><h3><span>{group.icon}</span>{group.title}</h3><div className="actionCards">{group.actions.map((action) => <button className={chosenStep === action ? "selected" : ""} onClick={() => setChosenStep(action)} key={action}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button>)}</div></section>)}<section className="stepGroup customGroup"><h3><span>⚙️</span>אפשרות אישית</h3><button className={chosenStep === "custom" ? "personalAction selected" : "personalAction"} onClick={() => setChosenStep("custom")}>➕ להוסיף פעולה משלי</button>{chosenStep === "custom" && <input autoFocus value={customStep} onChange={(e) => setCustomStep(e.target.value)} placeholder="מה יעזור לך עכשיו?" aria-label="פעולה אישית" />}</section></div>}<button className="primary stickyAction" disabled={!chosenStep || (chosenStep === "custom" && !customStep.trim())} onClick={() => { if (chosenStep === "custom") setChosenStep(saveCustomAction(customStep)); setScreen("stepCommit"); }}>זה הצעד שלי</button><button className="textButton" onClick={() => setScreen("finish")}>אין לי כוח לצעד עכשיו, וזה בסדר</button></section></main>;
 
   if (screen === "stepCommit") return <main className="shell stepMoment"><Header /><section className="flow centered"><div className="chosenIcon">🌱</div><p className="stepLabel">הצעד שבחרת</p><h2>{chosenStep}</h2><div className="encouragement"><p>זו לא חייבת להיות פעולה גדולה.</p><strong>מספיק צעד קטן אחד.</strong><p>לפעמים דווקא הצעד הקטן מחזיר אותנו לחיים.</p></div><button className="primary" onClick={() => setScreen("stepCheck")}>אני רוצה לנסות</button><button className="textButton" onClick={() => setScreen("step")}>לבחור צעד אחר</button></section></main>;
 
