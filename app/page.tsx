@@ -2,14 +2,21 @@
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 
-type Screen = "welcome" | "home" | "pain" | "need" | "pause" | "good" | "missing" | "step" | "stepCommit" | "stepCheck" | "stepSmall" | "feedback" | "finish" | "bank" | "voice" | "faith" | "journal" | "settings";
+type Screen = "welcome" | "home" | "pain" | "need" | "pause" | "good" | "save" | "missing" | "step" | "stepCommit" | "stepCheck" | "stepSmall" | "feedback" | "finish" | "bank" | "voice" | "faith" | "journal" | "settings";
 type Item = { id: number; text: string; media?: string; kind?: "image" | "audio"; date: string };
 type UsageMode = "general" | "personal";
 
 const painOptions = ["הגוף", "עייפות", "פחד", "בדידות", "בריאות", "כאב", "המראה שלי", "חוסר ודאות", "געגוע", "אחר"];
 const needOptions = ["שמישהו יקשיב לי", "לבכות", "שקט", "חיבוק", "שירחמו עליי רגע", "להיזכר בכוחות שלי"];
-const prompts = ["מי אוהב אותך?", "על מי את משפיעה?", "מה עדיין יפה בך?", "איזו תכונה טובה יש בך?", "מה הצלחת לעשות השבוע?", "מה גורם לך לחייך?", "מה נותן לחיים שלך משמעות?"];
-const generalPrompts = ["מי אוהב אותך?", "על מי יש לך השפעה טובה?", "איזה דבר בך ראוי להערכה?", "איזו תכונה טובה יש בך?", "מה הצלחת לעשות השבוע?", "מה גורם לך לחייך?", "מה נותן לחיים שלך משמעות?"];
+const prompts = ["מי גורם לך להרגיש בבית?", "איזה כוח עזר לך לעבור תקופה קשה?", "איזה רגע קטן היה לך טוב לאחרונה?", "מה חשוב לך?", "מה היית רוצה שהאני של מחר יזכור?"];
+const generalPrompts = ["עם מי נעים לך להיות?", "איזה דבר בך ראוי להערכה?", "מה נתן לך קצת אוויר לאחרונה?", "על מה אתה מקווה?", "מה היית רוצה שהאני של מחר יזכור?"];
+const savePrompts = [
+  { gate: "אנשים שנותנים לי כוח", question: "ממי קיבלת טוב לאחרונה?" },
+  { gate: "הכוחות שבי", question: "איזה כוח עזר לך לעבור תקופה קשה?" },
+  { gate: "רגעים טובים", question: "איזה רגע קטן היה לך טוב לאחרונה?" },
+  { gate: "משמעות ואמונה", question: "מה חשוב לך?" },
+  { gate: "ממני, אליי", question: "מה היית רוצה שהאני של מחר יזכור?" },
+];
 const stepGroups = [
   { title: "מנוחה והתחדשות", icon: "🌿", actions: ["😴 לישון קצת ולקום מחדש", "🛋️ לנוח בלי רגשות אשם", "🚿 להתקלח", "🛁 אמבטיה חמה", "💧 לשתות מים", "🍵 להכין תה או קפה", "🥗 לאכול משהו מזין", "💊 לקחת טיפול לפי הצורך"] },
   { title: "להזיז את הגוף", icon: "🚶", actions: ["🚶 הליכה קצרה", "🏃 לצאת לספורט", "🧘 מתיחות", "💪 פיזיותרפיה", "🌳 לשבת כמה דקות בחוץ", "🌞 לעמוד ליד חלון ולהרגיש את השמש"] },
@@ -65,6 +72,8 @@ export default function Home() {
   const [faith, setFaith] = useState<Item[]>([]);
   const [text, setText] = useState("");
   const [promptIndex, setPromptIndex] = useState(0);
+  const [savePromptIndex, setSavePromptIndex] = useState(0);
+  const [hydrated, setHydrated] = useState(false);
   const [chosenStep, setChosenStep] = useState("");
   const [customStep, setCustomStep] = useState("");
   const [customActions, setCustomActions] = useState<string[]>([]);
@@ -91,11 +100,26 @@ export default function Home() {
     setActionScores(storedScores);
     setCustomActions(storedCustom);
     setHiddenPersonalActions(readStore("good-hidden-personal-actions", []));
-    if (readStore("good-intro-seen", false)) setScreen("home");
+    const hasSeenOnboarding = readStore("good-intro-seen", false);
+    const navigation = readStore<{ screen?: Screen; pains?: string[]; need?: string; missingNeed?: string; chosenStep?: string; promptIndex?: number; savePromptIndex?: number }>("good-navigation", {});
+    const restorableScreens: Screen[] = ["home", "pain", "need", "pause", "good", "save", "missing", "step", "stepCommit", "stepCheck", "stepSmall", "feedback", "finish", "bank", "voice", "faith", "journal", "settings"];
+    if (hasSeenOnboarding) setScreen(navigation.screen && restorableScreens.includes(navigation.screen) ? navigation.screen : "home");
+    if (navigation.pains) setPains(navigation.pains);
+    if (navigation.need) setNeed(navigation.need);
+    if (navigation.missingNeed) setMissingNeed(navigation.missingNeed);
+    if (navigation.chosenStep) setChosenStep(navigation.chosenStep);
+    if (typeof navigation.promptIndex === "number") setPromptIndex(navigation.promptIndex);
+    if (typeof navigation.savePromptIndex === "number") setSavePromptIndex(navigation.savePromptIndex);
     const safeMode: UsageMode = modeWasExplicitlyChosen && storedMode === "personal" ? "personal" : "general";
     setUsageMode(safeMode);
     if (!modeWasExplicitlyChosen) try { localStorage.setItem("good-usage-mode", JSON.stringify("general")); } catch { /* נשמור בזיכרון לביקור הזה */ }
+    setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || screen === "welcome") return;
+    try { localStorage.setItem("good-navigation", JSON.stringify({ screen, pains, need, missingNeed, chosenStep, promptIndex, savePromptIndex })); } catch { /* הניווט ימשיך לעבוד בביקור הנוכחי */ }
+  }, [hydrated, screen, pains, need, missingNeed, chosenStep, promptIndex, savePromptIndex]);
 
   useEffect(() => {
     if (!running || seconds <= 0) return;
@@ -117,15 +141,18 @@ export default function Home() {
 
   const remove = (key: string, list: Item[], setter: (v: Item[]) => void, id: number) => save(key, setter, list.filter((x) => x.id !== id));
 
-  const imageUpload = (e: ChangeEvent<HTMLInputElement>) => {
+  const imageUpload = (e: ChangeEvent<HTMLInputElement>, target: "point" | "journal" = "point") => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => addText("good-points", goodPoints, setGoodPoints, String(reader.result), "image");
+    reader.onload = () => {
+      if (target === "journal") { addText("good-journal", journal, setJournal, String(reader.result), "image"); setScreen("finish"); }
+      else addText("good-points", goodPoints, setGoodPoints, String(reader.result), "image");
+    };
     reader.readAsDataURL(file);
   };
 
-  const startRecording = async (target: "voice" | "point") => {
+  const startRecording = async (target: "voice" | "point" | "journal") => {
     if (!navigator.mediaDevices || !window.MediaRecorder) return alert("ההקלטה אינה זמינה בדפדפן הזה.");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -135,9 +162,11 @@ export default function Home() {
       mr.onstop = () => {
         const blob = new Blob(chunks.current, { type: mr.mimeType });
         const reader = new FileReader();
-        reader.onload = () => target === "voice"
-          ? addText("good-voices", voices, setVoices, String(reader.result), "audio")
-          : addText("good-points", goodPoints, setGoodPoints, String(reader.result), "audio");
+        reader.onload = () => {
+          if (target === "voice") addText("good-voices", voices, setVoices, String(reader.result), "audio");
+          else if (target === "journal") { addText("good-journal", journal, setJournal, String(reader.result), "audio"); setScreen("finish"); }
+          else addText("good-points", goodPoints, setGoodPoints, String(reader.result), "audio");
+        };
         reader.readAsDataURL(blob);
         stream.getTracks().forEach((track) => track.stop());
       };
@@ -184,9 +213,17 @@ export default function Home() {
     setScreen("finish");
   };
   const goHome = () => { setScreen("home"); setPains([]); setNeed(""); setSeconds(180); setRunning(false); setText(""); };
+  const goBack = () => {
+    const previous: Partial<Record<Screen, Screen>> = { settings: "home", pain: "home", need: "pain", pause: "need", good: need ? "need" : "home", save: "home", missing: "good", step: "missing", stepCommit: "step", stepCheck: "stepCommit", stepSmall: "stepCheck", feedback: "stepCheck", finish: chosenStep ? "feedback" : "home", bank: "home", voice: "home", faith: "home", journal: "home" };
+    setScreen(previous[screen] || "home");
+  };
   const finishWelcome = () => {
     try { localStorage.setItem("good-intro-seen", JSON.stringify(true)); } catch { /* נמשיך גם ללא שמירה */ }
     setScreen("home");
+  };
+  const showWelcomeAgain = () => {
+    try { localStorage.removeItem("good-intro-seen"); } catch { /* אפשר עדיין להציג בביקור הזה */ }
+    setScreen("welcome");
   };
   const formatTime = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   const contextKey = [...pains].sort().join("|") + "::" + missingNeed;
@@ -201,12 +238,14 @@ export default function Home() {
   const sortedGroupActions = (actions: string[]) => actions.filter(isActionVisible).sort((a, b) => (actionScores[b]?.total || 0) - (actionScores[a]?.total || 0));
   const toggleCategory = (category: string) => setOpenCategory(openCategory === category ? null : category);
 
-  const Header = ({ back = true }: { back?: boolean }) => <header className="topbar">{back ? <button className="iconButton" onClick={goHome} aria-label="חזרה לבית">⌂</button> : <button className="iconButton" onClick={() => setScreen("settings")} aria-label="הגדרות והתאמה אישית">⚙</button>}<span className="miniBrand">הנקודה הטובה <i>•</i><small className={`modeBadge ${usageMode}`}>{usageMode === "general" ? "גרסה כללית" : "הגרסה האישית שלי"}</small></span></header>;
+  if (screen === "save") return <main className="shell"><header className="topbar"><div className="topbarActions"><button className="iconButton" onClick={goBack} aria-label="חזרה למסך הקודם">→</button><button className="iconButton homeButton" onClick={goHome} aria-label="חזרה למסך הראשי">⌂</button></div><span className="miniBrand">הנקודה הטובה</span></header><section className="flow centered saveFlow"><p className="stepLabel">{savePrompts[savePromptIndex].gate}</p><div className="goodMark">✦</div><h2>{savePrompts[savePromptIndex].question}</h2><p className="sub">אפשר לשמור רגע, מחשבה, פעולה, אדם או זיכרון שחיזקו אותך.</p><textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="מה תרצה לזכור?" rows={4} /><div className="mediaRow"><label className="smallAction">▧ להוסיף תמונה<input hidden type="file" accept="image/*" onChange={(event) => imageUpload(event, "journal")} /></label><button className="smallAction" onClick={() => recording ? stopRecording() : startRecording("journal")}>{recording ? "■ לסיים ולשמור" : "◉ להקליט"}</button></div><button className="primary" disabled={!text.trim()} onClick={() => { addText("good-journal", journal, setJournal); setScreen("finish"); }}>לשמור</button><button className="textButton" onClick={() => setSavePromptIndex((savePromptIndex + 1) % savePrompts.length)}>שער אחר</button></section></main>;
+
+  const Header = ({ back = true }: { back?: boolean }) => <header className="topbar"><div className="topbarActions">{back ? <><button className="iconButton" onClick={goBack} aria-label="חזרה למסך הקודם">→</button><button className="iconButton homeButton" onClick={goHome} aria-label="חזרה למסך הראשי">⌂</button>{screen === "settings" && <button className="onboardingLink" onClick={showWelcomeAgain}>הצג שוב את מסך הפתיחה</button>}</> : <button className="iconButton" onClick={() => setScreen("settings")} aria-label="הגדרות והתאמה אישית">⚙</button>}</div><span className="miniBrand">הנקודה הטובה <i>•</i><small className={`modeBadge ${usageMode}`}>{usageMode === "general" ? "גרסה כללית" : "הגרסה האישית שלי"}</small></span></header>;
   const CardList = ({ items, storageKey, setter }: { items: Item[]; storageKey: string; setter: (v: Item[]) => void }) => items.length ? <div className="cardList">{items.map((item) => <article className="memoryCard" key={item.id}>{item.kind === "image" && <img src={item.media} alt="זיכרון שבחרת לשמור" />}{item.kind === "audio" && <audio controls src={item.media} />}{item.text && <p>{item.text}</p>}<div className="cardMeta"><span>{item.date}</span><button onClick={() => remove(storageKey, items, setter, item.id)} aria-label="מחיקת הפריט">×</button></div></article>)}</div> : <div className="empty"><span>♡</span><p>המקום הזה מחכה למה שתרצי לשמור בו.</p></div>;
 
   if (screen === "welcome") return <main className="shell welcome"><section className="welcomeContent"><div className="welcomeMark">✦</div><p className="eyebrow">לגלות, לזכור ולחזק את כוחות החיים שבך</p><h1>ברוכים הבאים<br />ל<span>״הנקודה הטובה״</span></h1><div className="welcomeCopy"><p>יש ימים שבהם קל לנו להרגיש את כוחות החיים שלנו.</p><p>ויש ימים שבהם הכאב, העייפות, הדאגות או העומס מסתירים אותם.</p><div className="welcomePromise"><p>האפליקציה הזאת לא באה להגיד לך מי אתה.</p><strong>היא נועדה לעזור לך להתחבר מחדש לכוחות החיים שכבר קיימים בך.</strong></div><p>עם הזמן אפשר לשמור כאן דברים שמחזקים אותך באמת: רגעים טובים, מחשבות, אנשים, פעולות, זיכרונות, אמונה וכל דבר שנותן לך כוח.</p><p>כך, ברגעים קשים, האפליקציה תזכיר לך דווקא את הדברים שאתה עצמך גילית שמחזקים את כוחות החיים שלך.</p><p className="welcomeQuiet">אין צורך למלא הכול עכשיו.<br />פשוט להתחיל בקצב שלך.</p><p>האפליקציה תלמד להכיר אותך בעדינות, ותשתפר יחד איתך.</p></div><button className="primary warm" onClick={finishWelcome}>💛 בואו נתחיל</button></section></main>;
 
-  if (screen === "home") return <main className="shell home"><Header back={false} /><section className="hero"><div className="sun"><span>✦</span></div><p className="eyebrow">מקום קטן לנשום בו</p><h1>הנקודה<br /><em>הטובה</em></h1><p className="lead">גם אם היום קשה,<br />תמיד נשארת בתוכך נקודה אחת של טוב.</p><p className="together">בואי נמצא אותה יחד.</p><button className="primary warm" onClick={() => setScreen("pain")}><span>♡</span> קשה לי עכשיו</button><button className="secondary" onClick={() => setScreen("journal")}><span>🌱</span> מצאתי נקודת חיים</button></section><nav className="homeNav" aria-label="האוסף האישי"><button onClick={() => setScreen("bank")}><b>♡</b><span>הנקודות שלי</span></button><button onClick={() => setScreen("voice")}><b>◉</b><span>הקול שלי</span></button><button onClick={() => setScreen("faith")}><b>✦</b><span>מה נותן לי כוח</span></button></nav><p className="privacy">כל מה שנכתב כאן נשאר רק במכשיר שלך</p></main>;
+  if (screen === "home") return <main className="shell home"><Header back={false} /><section className="hero"><div className="sun"><span>✦</span></div><p className="eyebrow">מקום קטן לנשום בו</p><h1>הנקודה<br /><em>הטובה</em></h1><div className="lead homeVision"><p>יש ימים שבהם קל להרגיש את כוחות החיים שלנו.</p><p>ויש ימים שבהם הם קצת מוסתרים.</p><p>המקום הזה נועד לעזור לך לגלות, לזכור ולחזק את כוחות החיים שכבר קיימים בך.</p></div><p className="together">האפליקציה לא באה להגיד לך מי אתה.<br /><strong>היא באה לעזור לך לזכור.</strong></p><button className="primary warm" onClick={() => setScreen("pain")}><span>♡</span> קשה לי עכשיו</button><button className="secondary" onClick={() => setScreen("save")}><span>🌱</span> אני רוצה לשמור משהו שעזר לי</button></section><nav className="homeNav" aria-label="האוסף האישי"><button onClick={() => setScreen("bank")}><b>♡</b><span>הנקודות שלי</span></button><button onClick={() => setScreen("voice")}><b>◉</b><span>הקול שלי</span></button><button onClick={() => setScreen("faith")}><b>✦</b><span>מה נותן לי כוח</span></button></nav><p className="privacy">כל מה שנכתב כאן נשאר רק במכשיר שלך</p></main>;
 
   if (screen === "settings") return <main className="shell"><Header /><section className="library settings"><p className="stepLabel">הגדרות</p><h2>התאמה אישית</h2><div className={`activeMode ${usageMode}`}><span>המצב הפעיל כרגע:</span><strong>{usageMode === "general" ? "גרסה כללית" : "הגרסה האישית שלי"}</strong></div><p className="sub">אפשר לבחור כמה אישי יהיה התוכן שמופיע לך.</p><fieldset className="modePicker"><legend>מצב שימוש</legend><label className={usageMode === "general" ? "selected" : ""}><input type="radio" name="usage-mode" checked={usageMode === "general"} onChange={() => changeUsageMode("general")} /><span><b>גרסה כללית</b><small>רעיונות שמתאימים לרוב האנשים</small></span></label><label className={usageMode === "personal" ? "selected" : ""}><input type="radio" name="usage-mode" checked={usageMode === "personal"} onChange={() => changeUsageMode("personal")} /><span><b>הגרסה האישית שלי</b><small>כולל פעולות אישיות ודברים שהוספת</small></span></label></fieldset>{usageMode === "personal" && <button className="resetGeneral" onClick={() => changeUsageMode("general")}>חזרה לגרסה הכללית</button>}{usageMode === "personal" && <section className="personalSettings"><h3>פעולות אישיות מובנות</h3><p>אפשר להסתיר ולהחזיר. שום מידע לא נמחק.</p>{personalBuiltInActions.map((action) => <label className="visibilityRow" key={action}><span>{action}</span><input type="checkbox" checked={!hiddenPersonalActions.includes(action)} onChange={() => toggleBuiltInAction(action)} aria-label={`להציג את ${action}`} /></label>)}<h3>דברים שעוזרים לי</h3>{customActions.length > 0 ? <div className="settingsActions">{customActions.map((action) => <div key={action}><span>{action}</span><button onClick={() => removeCustomAction(action)} aria-label={`למחוק את ${action}`}>×</button></div>)}</div> : <p className="quietNote">עדיין לא הוספת פעולות משלך.</p>}<div className="addSettingAction"><input value={customStep} onChange={(e) => setCustomStep(e.target.value)} placeholder="פעולה חדשה שעוזרת לי" /><button disabled={!customStep.trim()} onClick={() => { saveCustomAction(customStep); setCustomStep(""); }}>להוסיף</button></div></section>}</section></main>;
 
@@ -230,7 +269,7 @@ export default function Home() {
 
   if (screen === "feedback") return <main className="shell feedback"><Header /><section className="flow centered"><p className="stepLabel">לשים לב למה שהשתנה</p><div className="moonArc">☾</div><h2>האם זה קצת עזר?</h2><p className="sub">אין כאן תשובה טובה יותר. גם שינוי קטן ראוי למקום.</p><div className="moonOptions"><button onClick={() => rememberHelp(0)}><span>🌑</span><div><b>עדיין קשה לי.</b><small>אפשר פשוט להיות כאן.</small></div></button><button onClick={() => rememberHelp(1)}><span>🌒</span><div><b>קצת יותר טוב.</b><small>גם קצת הוא שינוי.</small></div></button><button onClick={() => rememberHelp(2)}><span>🌓</span><div><b>חזר לי קצת כוח.</b><small>אפשר לשמור את הרגע הזה.</small></div></button><button onClick={() => rememberHelp(3)}><span>🌕</span><div><b>אני מרגישה שחזרתי לעצמי.</b><small>החיים עדיין כאן.</small></div></button></div></section></main>;
 
-  if (screen === "finish") return <main className="shell finish"><Header /><section className="flow centered"><div className="finishGlow"><span>✦</span></div><h2>הכאב עדיין יכול להיות כאן.</h2><p className="finishLine">אבל גם את כאן.</p><div className="softRule" /><p>ובתוכך נשארת עוד נקודה אחת<br />שאפשר לחזור אליה.</p><p className="finishThanks">תודה שנתת מקום לכוחות החיים שלך היום. 💛</p><button className="primary" onClick={goHome}>♡ זה מספיק להיום</button></section></main>;
+  if (screen === "finish") return <main className="shell finish"><Header /><section className="flow centered"><div className="finishGlow"><span>✦</span></div><h2>הכאב עדיין יכול להיות כאן.</h2><p className="finishLine">אבל גם את כאן.</p><div className="softRule" /><p>ובתוכך נשארת עוד נקודה אחת<br />שאפשר לחזור אליה.</p><p className="finishThanks">תודה שנתת היום מקום לכוחות החיים שלך. 💛</p><button className="primary" onClick={goHome}>חזרה למסך הראשי</button><button className="secondary" onClick={() => { setText(""); setSavePromptIndex(0); setScreen("save"); }}>🌱 לשמור עוד משהו</button></section></main>;
 
   const library = screen === "bank" ? { title: "הנקודות שלי", desc: "דברים אמיתיים שכבר מצאת בתוכך ובחיים שלך.", items: goodPoints, key: "good-points", setter: setGoodPoints } : screen === "journal" ? { title: "מצאתי נקודת חיים", desc: "רגע שבו הרגשת חיה, אוהבת, נותנת, צוחקת או פשוט קרובה לעצמך.", items: journal, key: "good-journal", setter: setJournal } : screen === "faith" ? { title: "מה נותן לי כוח", desc: "אמונה, שיר, תפילה או משפט אישי — רק מה שמתאים לך.", items: faith, key: "good-faith", setter: setFaith } : null;
   if (library) return <main className="shell"><Header /><section className="library"><p className="stepLabel">האוסף האישי שלי</p><h2>{library.title}</h2><p className="sub">{library.desc}</p><div className="composer"><textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder={screen === "journal" ? "מה היה טוב, אפילו לרגע?" : "מה תרצי לזכור?"} /><button className="primary" disabled={!text.trim()} onClick={() => addText(library.key, library.items, library.setter)}>לשמור כאן</button></div><CardList items={library.items} storageKey={library.key} setter={library.setter} /></section></main>;
