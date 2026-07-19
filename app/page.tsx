@@ -9,6 +9,7 @@ type UsageMode = "general" | "personal";
 const painOptions = ["הגוף", "עייפות", "פחד", "בדידות", "בריאות", "כאב", "המראה שלי", "חוסר ודאות", "געגוע", "אחר"];
 const needOptions = ["שמישהו יקשיב לי", "לבכות", "שקט", "חיבוק", "שירחמו עליי רגע", "להיזכר בכוחות שלי"];
 const prompts = ["מי אוהב אותך?", "על מי את משפיעה?", "מה עדיין יפה בך?", "איזו תכונה טובה יש בך?", "מה הצלחת לעשות השבוע?", "מה גורם לך לחייך?", "מה נותן לחיים שלך משמעות?"];
+const generalPrompts = ["מי אוהב אותך?", "על מי יש לך השפעה טובה?", "איזה דבר בך ראוי להערכה?", "איזו תכונה טובה יש בך?", "מה הצלחת לעשות השבוע?", "מה גורם לך לחייך?", "מה נותן לחיים שלך משמעות?"];
 const stepGroups = [
   { title: "מנוחה והתחדשות", icon: "🌿", actions: ["😴 לישון קצת ולקום מחדש", "🛋️ לנוח בלי רגשות אשם", "🚿 להתקלח", "🛁 אמבטיה חמה", "💧 לשתות מים", "🍵 להכין תה או קפה", "🥗 לאכול משהו מזין", "💊 לקחת טיפול לפי הצורך"] },
   { title: "להזיז את הגוף", icon: "🚶", actions: ["🚶 הליכה קצרה", "🏃 לצאת לספורט", "🧘 מתיחות", "💪 פיזיותרפיה", "🌳 לשבת כמה דקות בחוץ", "🌞 לעמוד ליד חלון ולהרגיש את השמש"] },
@@ -94,11 +95,6 @@ export default function Home() {
     const migratedMode: UsageMode = storedMode || (hasPersonalHistory ? "personal" : "general");
     setUsageMode(migratedMode);
     if (!storedMode) try { localStorage.setItem("good-usage-mode", JSON.stringify(migratedMode)); } catch { /* נשמור בזיכרון לביקור הזה */ }
-    const bestAction = Object.entries(storedScores).sort(([, a], [, b]) => b.total - a.total)[0];
-    if (bestAction && bestAction[1].total > 0) {
-      const containingGroup = stepGroups.find((group) => group.actions.includes(bestAction[0]));
-      setOpenCategory(storedCustom.includes(bestAction[0]) ? "דברים שעוזרים לי" : containingGroup?.title || null);
-    }
   }, []);
 
   useEffect(() => {
@@ -200,6 +196,7 @@ export default function Home() {
   const learnedSteps = Object.entries(actionScores).filter(([action, score]) => isActionVisible(action) && ((score.contexts[contextKey] || 0) > 0 || score.total >= 3)).sort(([, a], [, b]) => ((b.contexts[contextKey] || 0) * 3 + b.total) - ((a.contexts[contextKey] || 0) * 3 + a.total)).map(([action]) => action);
   const recommendedSteps = [...new Set([...learnedSteps, ...(soulRecommendationMap[missingNeed] || []), ...pains.flatMap((pain) => recommendationMap[pain] || [])])].filter(isActionVisible).slice(0, 5);
   const recommendations = recommendedSteps.length ? recommendedSteps : defaultRecommendations;
+  const activePrompts = usageMode === "personal" ? prompts : generalPrompts;
   const sortedGroupActions = (actions: string[]) => actions.filter(isActionVisible).sort((a, b) => (actionScores[b]?.total || 0) - (actionScores[a]?.total || 0));
   const toggleCategory = (category: string) => setOpenCategory(openCategory === category ? null : category);
 
@@ -218,7 +215,7 @@ export default function Home() {
 
   if (screen === "pause") return <main className="shell pause"><Header /><section className="flow centered"><p className="eyebrow">שלוש דקות בלי שום משימה</p><div className={`breathing ${running ? "active" : ""}`}><div><span>נושמת</span><b>{formatTime}</b></div></div><h2>{seconds === 0 ? "היית כאן עם עצמך." : "גם לזה יש מקום."}</h2><p className="sub">אין עצות. אין צורך לעשות דבר.<br />רק להיות כאן לרגע.</p>{seconds > 0 && <button className="primary" onClick={() => setRunning(!running)}>{running ? "להשהות" : seconds < 180 ? "להמשיך" : "להתחיל"}</button>}<button className="textButton" onClick={() => setScreen("good")}>לחזור אל הנקודה הטובה ←</button></section></main>;
 
-  if (screen === "good") return <main className="shell"><Header /><section className="flow centered"><div className="goodMark">✦</div><p className="stepLabel">הנקודה הטובה</p><h2>{prompts[promptIndex]}</h2><p className="sub">אין תשובה נכונה. רק מה שעולה עכשיו.</p><textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="אפשר לכתוב כאן..." rows={4} /><div className="mediaRow"><label className="smallAction">▧ להוסיף תמונה<input hidden type="file" accept="image/*" onChange={imageUpload} /></label><button className="smallAction" onClick={() => recording ? stopRecording() : startRecording("point")}>{recording ? "■ לסיים הקלטה" : "◉ להקליט"}</button></div><button className="primary" disabled={!text.trim()} onClick={() => { addText("good-points", goodPoints, setGoodPoints); setScreen("missing"); }}>לשמור ולהמשיך</button><button className="textButton" onClick={() => setPromptIndex((promptIndex + 1) % prompts.length)}>שאלה אחרת</button></section></main>;
+  if (screen === "good") return <main className="shell"><Header /><section className="flow centered"><div className="goodMark">✦</div><p className="stepLabel">הנקודה הטובה</p><h2>{activePrompts[promptIndex]}</h2><p className="sub">אין תשובה נכונה. רק מה שעולה עכשיו.</p><textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="אפשר לכתוב כאן..." rows={4} /><div className="mediaRow"><label className="smallAction">▧ להוסיף תמונה<input hidden type="file" accept="image/*" onChange={imageUpload} /></label><button className="smallAction" onClick={() => recording ? stopRecording() : startRecording("point")}>{recording ? "■ לסיים הקלטה" : "◉ להקליט"}</button></div><button className="primary" disabled={!text.trim()} onClick={() => { addText("good-points", goodPoints, setGoodPoints); setScreen("missing"); }}>לשמור ולהמשיך</button><button className="textButton" onClick={() => setPromptIndex((promptIndex + 1) % activePrompts.length)}>שאלה אחרת</button></section></main>;
 
   if (screen === "missing") return <main className="shell soulScreen"><Header /><section className="flow"><p className="stepLabel">לפני שבוחרים צעד</p><div className="soulMark">♡</div><h2>מה כרגע הנשמה שלך צריכה?</h2><p className="sub">לא תמיד צריך לדעת מה לעשות. אפשר להתחיל ממה שחסר.</p><div className="soulNeeds">{soulNeeds.map((item) => <button className={missingNeed === item ? "selected" : ""} onClick={() => setMissingNeed(item)} key={item}><span>{missingNeed === item ? "●" : "○"}</span>{item}</button>)}</div><button className="primary" disabled={!missingNeed} onClick={() => setScreen("step")}>לראות מה אולי יעזור</button><button className="textButton" onClick={() => setScreen("step")}>אני לא יודעת כרגע</button></section></main>;
 
