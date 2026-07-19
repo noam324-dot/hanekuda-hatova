@@ -2,8 +2,9 @@
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 
-type Screen = "home" | "pain" | "need" | "pause" | "good" | "missing" | "step" | "stepCommit" | "stepCheck" | "stepSmall" | "feedback" | "finish" | "bank" | "voice" | "faith" | "journal";
+type Screen = "welcome" | "home" | "pain" | "need" | "pause" | "good" | "missing" | "step" | "stepCommit" | "stepCheck" | "stepSmall" | "feedback" | "finish" | "bank" | "voice" | "faith" | "journal" | "settings";
 type Item = { id: number; text: string; media?: string; kind?: "image" | "audio"; date: string };
+type UsageMode = "general" | "personal";
 
 const painOptions = ["הגוף", "עייפות", "פחד", "בדידות", "בריאות", "כאב", "המראה שלי", "חוסר ודאות", "געגוע", "אחר"];
 const needOptions = ["שמישהו יקשיב לי", "לבכות", "שקט", "חיבוק", "שירחמו עליי רגע", "להיזכר בכוחות שלי"];
@@ -32,6 +33,8 @@ const recommendationMap: Record<string, string[]> = {
   "המראה שלי": ["📝 לכתוב שלושה משפטים שהייתי אומרת לחברה טובה במצב שלי", "🚿 להתקלח", "🎵 לשים מוזיקה שאני אוהבת", "🤗 לבקש חיבוק", "💛 להיזכר בנקודה הטובה שלי"],
 };
 const defaultRecommendations = ["💧 לשתות מים", "🌬️ לקחת נשימה עמוקה", "🌳 לשבת כמה דקות בחוץ", "🎵 לשים מוזיקה שאני אוהבת", "💛 לעשות מעשה אחד קטן של אהבה"];
+const personalBuiltInActions = ["💊 לקחת טיפול לפי הצורך", "💪 פיזיותרפיה"];
+const actionScope = (action: string): "general" | "personal" => personalBuiltInActions.includes(action) ? "personal" : "general";
 const soulNeeds = ["מנוחה", "אהבה", "כוח", "תקווה", "אמונה", "שקט", "משמעות", "שמחה", "חיבור לאנשים", "להרגיש שאני מצליחה"];
 const soulRecommendationMap: Record<string, string[]> = {
   "מנוחה": ["😴 לישון קצת ולקום מחדש", "🛋️ לנוח בלי רגשות אשם", "🍵 להכין תה או קפה", "🌳 לשבת כמה דקות בחוץ", "💧 לשתות מים"],
@@ -52,7 +55,7 @@ const readStore = <T,>(key: string, fallback: T): T => {
 };
 
 export default function Home() {
-  const [screen, setScreen] = useState<Screen>("home");
+  const [screen, setScreen] = useState<Screen>("welcome");
   const [pains, setPains] = useState<string[]>([]);
   const [need, setNeed] = useState("");
   const [goodPoints, setGoodPoints] = useState<Item[]>([]);
@@ -64,7 +67,9 @@ export default function Home() {
   const [chosenStep, setChosenStep] = useState("");
   const [customStep, setCustomStep] = useState("");
   const [customActions, setCustomActions] = useState<string[]>([]);
-  const [showAllSteps, setShowAllSteps] = useState(false);
+  const [openCategory, setOpenCategory] = useState<string | null>(null);
+  const [usageMode, setUsageMode] = useState<UsageMode>("general");
+  const [hiddenPersonalActions, setHiddenPersonalActions] = useState<string[]>([]);
   const [missingNeed, setMissingNeed] = useState("");
   const [actionScores, setActionScores] = useState<Record<string, { total: number; contexts: Record<string, number> }>>({});
   const [seconds, setSeconds] = useState(180);
@@ -78,8 +83,22 @@ export default function Home() {
     setJournal(readStore("good-journal", []));
     setVoices(readStore("good-voices", []));
     setFaith(readStore("good-faith", []));
-    setActionScores(readStore("good-action-scores", {}));
-    setCustomActions(readStore("good-custom-actions", []));
+    const storedScores = readStore<Record<string, { total: number; contexts: Record<string, number> }>>("good-action-scores", {});
+    const storedCustom = readStore<string[]>("good-custom-actions", []);
+    const storedMode = readStore<UsageMode | null>("good-usage-mode", null);
+    setActionScores(storedScores);
+    setCustomActions(storedCustom);
+    setHiddenPersonalActions(readStore("good-hidden-personal-actions", []));
+    if (readStore("good-intro-seen", false)) setScreen("home");
+    const hasPersonalHistory = storedCustom.length > 0 || Object.keys(storedScores).some((action) => personalBuiltInActions.includes(action) || storedCustom.includes(action));
+    const migratedMode: UsageMode = storedMode || (hasPersonalHistory ? "personal" : "general");
+    setUsageMode(migratedMode);
+    if (!storedMode) try { localStorage.setItem("good-usage-mode", JSON.stringify(migratedMode)); } catch { /* נשמור בזיכרון לביקור הזה */ }
+    const bestAction = Object.entries(storedScores).sort(([, a], [, b]) => b.total - a.total)[0];
+    if (bestAction && bestAction[1].total > 0) {
+      const containingGroup = stepGroups.find((group) => group.actions.includes(bestAction[0]));
+      setOpenCategory(storedCustom.includes(bestAction[0]) ? "דברים שעוזרים לי" : containingGroup?.title || null);
+    }
   }, []);
 
   useEffect(() => {
@@ -149,6 +168,15 @@ export default function Home() {
     try { localStorage.setItem("good-custom-actions", JSON.stringify(next)); } catch { /* נשאיר את המצב בזיכרון */ }
     try { localStorage.setItem("good-action-scores", JSON.stringify(nextScores)); } catch { /* נשאיר את המצב בזיכרון */ }
   };
+  const changeUsageMode = (mode: UsageMode) => {
+    setUsageMode(mode);
+    try { localStorage.setItem("good-usage-mode", JSON.stringify(mode)); } catch { /* נשמור בזיכרון לביקור הזה */ }
+  };
+  const toggleBuiltInAction = (action: string) => {
+    const next = hiddenPersonalActions.includes(action) ? hiddenPersonalActions.filter((item) => item !== action) : [...hiddenPersonalActions, action];
+    setHiddenPersonalActions(next);
+    try { localStorage.setItem("good-hidden-personal-actions", JSON.stringify(next)); } catch { /* נשמור בזיכרון לביקור הזה */ }
+  };
   const rememberHelp = (weight: number) => {
     if (!weight || !chosenStep) { setScreen("finish"); return; }
     const context = [...pains].sort().join("|") + "::" + missingNeed;
@@ -159,16 +187,30 @@ export default function Home() {
     setScreen("finish");
   };
   const goHome = () => { setScreen("home"); setPains([]); setNeed(""); setSeconds(180); setRunning(false); setText(""); };
+  const finishWelcome = () => {
+    try { localStorage.setItem("good-intro-seen", JSON.stringify(true)); } catch { /* נמשיך גם ללא שמירה */ }
+    setScreen("home");
+  };
   const formatTime = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   const contextKey = [...pains].sort().join("|") + "::" + missingNeed;
-  const learnedSteps = Object.entries(actionScores).filter(([, score]) => (score.contexts[contextKey] || 0) > 0 || score.total >= 3).sort(([, a], [, b]) => ((b.contexts[contextKey] || 0) * 3 + b.total) - ((a.contexts[contextKey] || 0) * 3 + a.total)).map(([action]) => action);
-  const recommendedSteps = [...new Set([...learnedSteps, ...(soulRecommendationMap[missingNeed] || []), ...pains.flatMap((pain) => recommendationMap[pain] || [])])].slice(0, 5);
+  const isActionVisible = (action: string) => {
+    const personal = customActions.includes(action) || actionScope(action) === "personal";
+    return !personal || (usageMode === "personal" && !hiddenPersonalActions.includes(action));
+  };
+  const learnedSteps = Object.entries(actionScores).filter(([action, score]) => isActionVisible(action) && ((score.contexts[contextKey] || 0) > 0 || score.total >= 3)).sort(([, a], [, b]) => ((b.contexts[contextKey] || 0) * 3 + b.total) - ((a.contexts[contextKey] || 0) * 3 + a.total)).map(([action]) => action);
+  const recommendedSteps = [...new Set([...learnedSteps, ...(soulRecommendationMap[missingNeed] || []), ...pains.flatMap((pain) => recommendationMap[pain] || [])])].filter(isActionVisible).slice(0, 5);
   const recommendations = recommendedSteps.length ? recommendedSteps : defaultRecommendations;
+  const sortedGroupActions = (actions: string[]) => actions.filter(isActionVisible).sort((a, b) => (actionScores[b]?.total || 0) - (actionScores[a]?.total || 0));
+  const toggleCategory = (category: string) => setOpenCategory(openCategory === category ? null : category);
 
-  const Header = ({ back = true }: { back?: boolean }) => <header className="topbar">{back ? <button className="iconButton" onClick={goHome} aria-label="חזרה לבית">⌂</button> : <span />}<span className="miniBrand">הנקודה הטובה <i>•</i></span></header>;
+  const Header = ({ back = true }: { back?: boolean }) => <header className="topbar">{back ? <button className="iconButton" onClick={goHome} aria-label="חזרה לבית">⌂</button> : <button className="iconButton" onClick={() => setScreen("settings")} aria-label="הגדרות והתאמה אישית">⚙</button>}<span className="miniBrand">הנקודה הטובה <i>•</i></span></header>;
   const CardList = ({ items, storageKey, setter }: { items: Item[]; storageKey: string; setter: (v: Item[]) => void }) => items.length ? <div className="cardList">{items.map((item) => <article className="memoryCard" key={item.id}>{item.kind === "image" && <img src={item.media} alt="זיכרון שבחרת לשמור" />}{item.kind === "audio" && <audio controls src={item.media} />}{item.text && <p>{item.text}</p>}<div className="cardMeta"><span>{item.date}</span><button onClick={() => remove(storageKey, items, setter, item.id)} aria-label="מחיקת הפריט">×</button></div></article>)}</div> : <div className="empty"><span>♡</span><p>המקום הזה מחכה למה שתרצי לשמור בו.</p></div>;
 
+  if (screen === "welcome") return <main className="shell welcome"><section className="welcomeContent"><div className="welcomeMark">✦</div><p className="eyebrow">לגלות, לזכור ולחזק את כוחות החיים שבך</p><h1>ברוכים הבאים<br />ל<span>״הנקודה הטובה״</span></h1><div className="welcomeCopy"><p>יש ימים שבהם קל לנו להרגיש את כוחות החיים שלנו.</p><p>ויש ימים שבהם הכאב, העייפות, הדאגות או העומס מסתירים אותם.</p><div className="welcomePromise"><p>האפליקציה הזאת לא באה להגיד לך מי אתה.</p><strong>היא נועדה לעזור לך להתחבר מחדש לכוחות החיים שכבר קיימים בך.</strong></div><p>עם הזמן אפשר לשמור כאן דברים שמחזקים אותך באמת: רגעים טובים, מחשבות, אנשים, פעולות, זיכרונות, אמונה וכל דבר שנותן לך כוח.</p><p>כך, ברגעים קשים, האפליקציה תזכיר לך דווקא את הדברים שאתה עצמך גילית שמחזקים את כוחות החיים שלך.</p><p className="welcomeQuiet">אין צורך למלא הכול עכשיו.<br />פשוט להתחיל בקצב שלך.</p><p>האפליקציה תלמד להכיר אותך בעדינות, ותשתפר יחד איתך.</p></div><button className="primary warm" onClick={finishWelcome}>💛 בואו נתחיל</button></section></main>;
+
   if (screen === "home") return <main className="shell home"><Header back={false} /><section className="hero"><div className="sun"><span>✦</span></div><p className="eyebrow">מקום קטן לנשום בו</p><h1>הנקודה<br /><em>הטובה</em></h1><p className="lead">גם אם היום קשה,<br />תמיד נשארת בתוכך נקודה אחת של טוב.</p><p className="together">בואי נמצא אותה יחד.</p><button className="primary warm" onClick={() => setScreen("pain")}><span>♡</span> קשה לי עכשיו</button><button className="secondary" onClick={() => setScreen("journal")}><span>🌱</span> מצאתי נקודת חיים</button></section><nav className="homeNav" aria-label="האוסף האישי"><button onClick={() => setScreen("bank")}><b>♡</b><span>הנקודות שלי</span></button><button onClick={() => setScreen("voice")}><b>◉</b><span>הקול שלי</span></button><button onClick={() => setScreen("faith")}><b>✦</b><span>מה נותן לי כוח</span></button></nav><p className="privacy">כל מה שנכתב כאן נשאר רק במכשיר שלך</p></main>;
+
+  if (screen === "settings") return <main className="shell"><Header /><section className="library settings"><p className="stepLabel">הגדרות</p><h2>התאמה אישית</h2><p className="sub">אפשר לבחור כמה אישי יהיה התוכן שמופיע לך.</p><fieldset className="modePicker"><legend>מצב שימוש</legend><label className={usageMode === "general" ? "selected" : ""}><input type="radio" name="usage-mode" checked={usageMode === "general"} onChange={() => changeUsageMode("general")} /><span><b>גרסה כללית</b><small>רעיונות שמתאימים לרוב האנשים</small></span></label><label className={usageMode === "personal" ? "selected" : ""}><input type="radio" name="usage-mode" checked={usageMode === "personal"} onChange={() => changeUsageMode("personal")} /><span><b>הגרסה האישית שלי</b><small>כולל פעולות אישיות ודברים שהוספת</small></span></label></fieldset>{usageMode === "personal" && <section className="personalSettings"><h3>פעולות אישיות מובנות</h3><p>אפשר להסתיר ולהחזיר. שום מידע לא נמחק.</p>{personalBuiltInActions.map((action) => <label className="visibilityRow" key={action}><span>{action}</span><input type="checkbox" checked={!hiddenPersonalActions.includes(action)} onChange={() => toggleBuiltInAction(action)} aria-label={`להציג את ${action}`} /></label>)}<h3>דברים שעוזרים לי</h3>{customActions.length > 0 ? <div className="settingsActions">{customActions.map((action) => <div key={action}><span>{action}</span><button onClick={() => removeCustomAction(action)} aria-label={`למחוק את ${action}`}>×</button></div>)}</div> : <p className="quietNote">עדיין לא הוספת פעולות משלך.</p>}<div className="addSettingAction"><input value={customStep} onChange={(e) => setCustomStep(e.target.value)} placeholder="פעולה חדשה שעוזרת לי" /><button disabled={!customStep.trim()} onClick={() => { saveCustomAction(customStep); setCustomStep(""); }}>להוסיף</button></div></section>}</section></main>;
 
   if (screen === "pain") return <main className="shell"><Header /><section className="flow"><p className="stepLabel">רגע אחד, בקצב שלך</p><h2>מה הכי כואב עכשיו?</h2><p className="sub">אפשר לבחור יותר מדבר אחד.</p><div className="choices">{painOptions.map((x) => <button className={pains.includes(x) ? "selected" : ""} onClick={() => setPains(pains.includes(x) ? pains.filter((p) => p !== x) : [...pains, x])} key={x}><span>{pains.includes(x) ? "✓" : ""}</span>{x}</button>)}</div><button disabled={!pains.length} className="primary" onClick={() => setScreen("need")}>להמשיך בעדינות</button></section></main>;
 
@@ -180,7 +222,7 @@ export default function Home() {
 
   if (screen === "missing") return <main className="shell soulScreen"><Header /><section className="flow"><p className="stepLabel">לפני שבוחרים צעד</p><div className="soulMark">♡</div><h2>מה כרגע הנשמה שלך צריכה?</h2><p className="sub">לא תמיד צריך לדעת מה לעשות. אפשר להתחיל ממה שחסר.</p><div className="soulNeeds">{soulNeeds.map((item) => <button className={missingNeed === item ? "selected" : ""} onClick={() => setMissingNeed(item)} key={item}><span>{missingNeed === item ? "●" : "○"}</span>{item}</button>)}</div><button className="primary" disabled={!missingNeed} onClick={() => setScreen("step")}>לראות מה אולי יעזור</button><button className="textButton" onClick={() => setScreen("step")}>אני לא יודעת כרגע</button></section></main>;
 
-  if (screen === "step") return <main className="shell stepPage"><Header /><section className="flow"><p className="stepLabel">צעד קטן אל החיים</p><h2>🌱 מה יעזור לי לחזור לחיים עכשיו?</h2><p className="sub">המטרה היא לא להספיק דברים. רק לבחור צעד אחד שמקרב אותך לחיים שאת רוצה.</p><section className="recommended"><div className="recommendedTitle"><span>✦</span><div><h3>אולי יתאים לך עכשיו</h3><p>לפי מה ששיתפת קודם</p></div></div><div className="actionCards">{recommendations.map((action) => <button className={chosenStep === action ? "selected" : ""} onClick={() => setChosenStep(action)} key={action}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button>)}</div></section>{!showAllSteps && <button className="showMore" onClick={() => setShowAllSteps(true)}>הצג עוד רעיונות <span>⌄</span></button>}{showAllSteps && <div className="stepGroups">{customActions.length > 0 && <section className="stepGroup savedActions"><h3><span>💛</span>דברים שעוזרים לי</h3><div className="savedActionList">{customActions.map((action) => <div className={chosenStep === action ? "savedAction selected" : "savedAction"} key={action}><button className="savedActionSelect" onClick={() => setChosenStep(action)}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button><button className="deleteAction" onClick={() => removeCustomAction(action)} aria-label={`למחוק את ${action}`}>×</button></div>)}</div></section>}{stepGroups.map((group) => <section className="stepGroup" key={group.title}><h3><span>{group.icon}</span>{group.title}</h3><div className="actionCards">{group.actions.map((action) => <button className={chosenStep === action ? "selected" : ""} onClick={() => setChosenStep(action)} key={action}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button>)}</div></section>)}<section className="stepGroup customGroup"><h3><span>⚙️</span>אפשרות אישית</h3><button className={chosenStep === "custom" ? "personalAction selected" : "personalAction"} onClick={() => setChosenStep("custom")}>➕ להוסיף פעולה משלי</button>{chosenStep === "custom" && <input autoFocus value={customStep} onChange={(e) => setCustomStep(e.target.value)} placeholder="מה יעזור לך עכשיו?" aria-label="פעולה אישית" />}</section></div>}<button className="primary stickyAction" disabled={!chosenStep || (chosenStep === "custom" && !customStep.trim())} onClick={() => { if (chosenStep === "custom") setChosenStep(saveCustomAction(customStep)); setScreen("stepCommit"); }}>זה הצעד שלי</button><button className="textButton" onClick={() => setScreen("finish")}>אין לי כוח לצעד עכשיו, וזה בסדר</button></section></main>;
+  if (screen === "step") return <main className="shell stepPage"><Header /><section className="flow"><p className="stepLabel">צעד קטן אל החיים</p><h2>🌱 מה יעזור לי לחזור לחיים עכשיו?</h2><p className="sub">המטרה היא לא להספיק דברים. רק לבחור צעד אחד שמקרב אותך לחיים שאת רוצה.</p><section className="recommended"><div className="recommendedTitle"><span>✦</span><div><h3>אולי יתאים לך עכשיו</h3><p>לפי מה ששיתפת קודם</p></div></div><div className="actionCards">{recommendations.map((action) => <button className={chosenStep === action ? "selected" : ""} onClick={() => setChosenStep(action)} key={action}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button>)}</div></section><div className="categoryAccordions">{usageMode === "personal" && customActions.length > 0 && <section className="categoryCard savedActions"><button className="categoryToggle" onClick={() => toggleCategory("דברים שעוזרים לי")} aria-expanded={openCategory === "דברים שעוזרים לי"} aria-controls="category-custom"><span><i>💛</i>דברים שעוזרים לי</span><b aria-hidden="true">⌄</b></button><div id="category-custom" className={openCategory === "דברים שעוזרים לי" ? "accordionPanel open" : "accordionPanel"} aria-hidden={openCategory !== "דברים שעוזרים לי"}><div className="accordionInner"><div className="savedActionList">{customActions.sort((a, b) => (actionScores[b]?.total || 0) - (actionScores[a]?.total || 0)).map((action) => <div className={chosenStep === action ? "savedAction selected" : "savedAction"} key={action}><button className="savedActionSelect" onClick={() => setChosenStep(action)}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button><button className="deleteAction" onClick={() => removeCustomAction(action)} aria-label={`למחוק את ${action}`}>×</button></div>)}</div></div></div></section>}{stepGroups.map((group, index) => { const actions = sortedGroupActions(group.actions); if (!actions.length) return null; const panelId = `category-${index}`; const isOpen = openCategory === group.title; return <section className="categoryCard" key={group.title}><button className="categoryToggle" onClick={() => toggleCategory(group.title)} aria-expanded={isOpen} aria-controls={panelId}><span><i>{group.icon}</i>{group.title}</span><b aria-hidden="true">⌄</b></button><div id={panelId} className={isOpen ? "accordionPanel open" : "accordionPanel"} aria-hidden={!isOpen}><div className="accordionInner">{"intro" in group && group.intro && <p className="groupIntro">{group.intro}</p>}<div className="actionCards">{actions.map((action) => <button className={chosenStep === action ? "selected" : ""} onClick={() => setChosenStep(action)} key={action}><span className="check">{chosenStep === action ? "✓" : ""}</span><b>{action}</b></button>)}</div></div></div></section>})}{usageMode === "personal" && <section className="categoryCard"><button className="categoryToggle" onClick={() => toggleCategory("פעולה אישית")} aria-expanded={openCategory === "פעולה אישית"} aria-controls="category-add"><span><i>⚙️</i>הוספת פעולה אישית</span><b aria-hidden="true">⌄</b></button><div id="category-add" className={openCategory === "פעולה אישית" ? "accordionPanel open" : "accordionPanel"} aria-hidden={openCategory !== "פעולה אישית"}><div className="accordionInner customGroup"><input value={customStep} onChange={(e) => setCustomStep(e.target.value)} placeholder="מה יעזור לך עכשיו?" aria-label="פעולה אישית" /><button className="personalAction" disabled={!customStep.trim()} onClick={() => { const action = saveCustomAction(customStep); setChosenStep(action); setCustomStep(""); }}>להוסיף ולבחור</button></div></div></section>}</div><button className="primary stickyAction" disabled={!chosenStep} onClick={() => setScreen("stepCommit")}>זה הצעד שלי</button><button className="textButton" onClick={() => setScreen("finish")}>אין לי כוח לצעד עכשיו, וזה בסדר</button></section></main>;
 
   if (screen === "stepCommit") return <main className="shell stepMoment"><Header /><section className="flow centered"><div className="chosenIcon">🌱</div><p className="stepLabel">הצעד שבחרת</p><h2>{chosenStep}</h2><div className="encouragement"><p>זו לא חייבת להיות פעולה גדולה.</p><strong>מספיק צעד קטן אחד.</strong><p>לפעמים דווקא הצעד הקטן מחזיר אותנו לחיים.</p></div><button className="primary" onClick={() => setScreen("stepCheck")}>אני רוצה לנסות</button><button className="textButton" onClick={() => setScreen("step")}>לבחור צעד אחר</button></section></main>;
 
@@ -190,7 +232,7 @@ export default function Home() {
 
   if (screen === "feedback") return <main className="shell feedback"><Header /><section className="flow centered"><p className="stepLabel">לשים לב למה שהשתנה</p><div className="moonArc">☾</div><h2>האם זה קצת עזר?</h2><p className="sub">אין כאן תשובה טובה יותר. גם שינוי קטן ראוי למקום.</p><div className="moonOptions"><button onClick={() => rememberHelp(0)}><span>🌑</span><div><b>עדיין קשה לי.</b><small>אפשר פשוט להיות כאן.</small></div></button><button onClick={() => rememberHelp(1)}><span>🌒</span><div><b>קצת יותר טוב.</b><small>גם קצת הוא שינוי.</small></div></button><button onClick={() => rememberHelp(2)}><span>🌓</span><div><b>חזר לי קצת כוח.</b><small>אפשר לשמור את הרגע הזה.</small></div></button><button onClick={() => rememberHelp(3)}><span>🌕</span><div><b>אני מרגישה שחזרתי לעצמי.</b><small>החיים עדיין כאן.</small></div></button></div></section></main>;
 
-  if (screen === "finish") return <main className="shell finish"><Header /><section className="flow centered"><div className="finishGlow"><span>✦</span></div><h2>הכאב עדיין יכול להיות כאן.</h2><p className="finishLine">אבל גם את כאן.</p><div className="softRule" /><p>ובתוכך נשארת עוד נקודה אחת<br />שאפשר לחזור אליה.</p><button className="primary" onClick={goHome}>♡ זה מספיק להיום</button></section></main>;
+  if (screen === "finish") return <main className="shell finish"><Header /><section className="flow centered"><div className="finishGlow"><span>✦</span></div><h2>הכאב עדיין יכול להיות כאן.</h2><p className="finishLine">אבל גם את כאן.</p><div className="softRule" /><p>ובתוכך נשארת עוד נקודה אחת<br />שאפשר לחזור אליה.</p><p className="finishThanks">תודה שנתת מקום לכוחות החיים שלך היום. 💛</p><button className="primary" onClick={goHome}>♡ זה מספיק להיום</button></section></main>;
 
   const library = screen === "bank" ? { title: "הנקודות שלי", desc: "דברים אמיתיים שכבר מצאת בתוכך ובחיים שלך.", items: goodPoints, key: "good-points", setter: setGoodPoints } : screen === "journal" ? { title: "מצאתי נקודת חיים", desc: "רגע שבו הרגשת חיה, אוהבת, נותנת, צוחקת או פשוט קרובה לעצמך.", items: journal, key: "good-journal", setter: setJournal } : screen === "faith" ? { title: "מה נותן לי כוח", desc: "אמונה, שיר, תפילה או משפט אישי — רק מה שמתאים לך.", items: faith, key: "good-faith", setter: setFaith } : null;
   if (library) return <main className="shell"><Header /><section className="library"><p className="stepLabel">האוסף האישי שלי</p><h2>{library.title}</h2><p className="sub">{library.desc}</p><div className="composer"><textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder={screen === "journal" ? "מה היה טוב, אפילו לרגע?" : "מה תרצי לזכור?"} /><button className="primary" disabled={!text.trim()} onClick={() => addText(library.key, library.items, library.setter)}>לשמור כאן</button></div><CardList items={library.items} storageKey={library.key} setter={library.setter} /></section></main>;
